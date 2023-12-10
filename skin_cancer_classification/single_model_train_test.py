@@ -41,6 +41,7 @@ from sklearn.metrics import (
     recall_score,
     roc_curve,
 )
+
 from tensorflow.keras.applications.resnet import ResNet152, preprocess_input
 from tensorflow.keras.callbacks import (
     EarlyStopping,
@@ -48,6 +49,7 @@ from tensorflow.keras.callbacks import (
     ReduceLROnPlateau,
     TensorBoard,
 )
+
 from tensorflow.keras.layers import (
     Conv2D,
     Dense,
@@ -57,62 +59,66 @@ from tensorflow.keras.layers import (
     Input,
     MaxPooling2D,
 )
-from tensorflow.keras.models import Model, Sequential, load_model
 
-# import tf.keras.layers.GroupNormalization
+from tensorflow.keras.models import Model, Sequential, load_model
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 
 logging.set_verbosity(logging.ERROR)
 
-
 def get_training_model_xception(url, trainable=False):
-    # https://www.analyticsvidhya.com/blog/2022/04/binary-classification-on-skin-cancer-dataset-using-dl/
-    model = Sequential()
+    # Load the Xception base model
     base = Xception(
         include_top=False, weights="imagenet", input_shape=(200, 200, 3), pooling="avg"
     )
-    for lay in base.layers:
-        lay.trainable = True  # false for transfer learning
+    
+    # Set the layers of the base model to trainable or not based on the parameter
+    for layer in base.layers:
+        layer.trainable = trainable
+    
+    # Build the custom model on top of the Xception base
+    model = Sequential()
     model.add(base)
     model.add(Dropout(0.5))
     model.add(Flatten())
-    model.add(Dense(10, "relu"))
+    model.add(Dense(10, activation="relu"))
     model.add(Dropout(0.5))
-    model.add(Dense(1, "sigmoid"))
+    model.add(Dense(1, activation="sigmoid"))
+    
     return model
 
-
 def get_training_model_resnet(trainable=False):
-    # from https://www.apriorit.com/dev-blog/647-ai-applying-deep-learning-to-classify-skin-cancer-types
-    # Download data from https://storage.googleapis.com/tensorflow/keras-applications/resnet/resnet152_weights_tf_dim_ordering_tf_kernels_notop.h5
+    # Load ResNet152 base model
     base_model = ResNet152(weights="imagenet", include_top=False)
+    
+    # Customize the top layers of the model
     x = base_model.output
     x = GlobalAveragePooling2D()(x)
-    # x = Dense(1000, activation='relu')(x)
     x = Dense(100, activation="relu")(x)
     x = Dropout(0.25)(x)
     predictions = Dense(1, activation="sigmoid")(x)
 
+    # Print layer names for reference
     for i, layer in enumerate(base_model.layers):
         print(i, layer.name)
 
-    if True:
-        # freeze all layers
+    # Set the layers of the base model to trainable or not based on the parameter
+    if not trainable:
+        # Freeze all layers
         for layer in base_model.layers:
             layer.trainable = False
     else:
-        # freeze up to given layer
+        # Unfreeze layers up to a given point
         layer_num = 483
         for layer in base_model.layers[:layer_num]:
             layer.trainable = False
         for layer in base_model.layers[layer_num:]:
             layer.trainable = True
 
+    # Create the final model
     model = Model(inputs=base_model.input, outputs=predictions)
 
     return model
-
 
 def get_training_model_effnet(url, trainable=False):
     # Load the respective EfficientNet model but exclude the classification layers
@@ -120,45 +126,32 @@ def get_training_model_effnet(url, trainable=False):
         url, input_shape=(img_size, img_size, 3), trainable=trainable
     )
 
-    # Construct the head of the model that will be placed on top of the
-    # the base model
+    # Build the head of the model on top of the base model
     model = tf.keras.models.Sequential(
         [
             extractor,
             tf.keras.layers.Dropout(0.8),
             tf.keras.layers.Dense(200, activation="relu"),
             tf.keras.layers.BatchNormalization(),
-            # tf.keras.layers.Dense(80, activation="relu"),
-            # tf.keras.layers.BatchNormalization(),
-            # tf.keras.layers.Dropout(0.5),
-            # tf.keras.layers.Dense(60, activation="relu"),
-            # tf.keras.layers.BatchNormalization(),
-            # tf.keras.layers.Dropout(0.5),
             tf.keras.layers.Dense(1, activation="sigmoid"),
         ]
     )
-
+    
+    # Uncomment the following lines to print layer names for reference
     # layers = model.weights
-    # for i in range( len(layers) ):
-    #    print(i, layers[i].name)
-
+    # for i, layer in enumerate(layers):
+    #     print(i, layer.name)
+    
     return model
 
 
 def get_training_model_fixed():
-    # img_width = 240
-    # img_height = 240
-    # original images have width = 600 and height = 450 pixels
-    # divide by 5:
     img_width = 120
     img_height = 90
-    # Define the input shape of the images
     input_shape = (img_width, img_height, 3)
-
-    #  num_output_neurons = 1
-
-    # Define the CNN model
+    
     model = Sequential()
+    
     if False:
         model.add(Conv2D(60, (8, 8), input_shape=input_shape, activation="swish"))
         model.add(MaxPooling2D((2, 2)))
@@ -169,49 +162,16 @@ def get_training_model_fixed():
         model.add(Flatten())
         model.add(Dense(1, activation="sigmoid"))
     else:
-        model.add(
-            tf.keras.layers.Conv2D(
-                30,
-                (5, 5),
-                strides=(1, 1),
-                padding="valid",
-                activation="relu",
-                input_shape=(90, 120, 3),
-            )
-        )
-        model.add(
-            tf.keras.layers.Conv2D(
-                30, (3, 3), strides=(1, 1), padding="valid", activation="relu"
-            )
-        )
+        model.add(tf.keras.layers.Conv2D(30,(5, 5),strides=(1, 1),padding="valid",activation="relu",input_shape=(90, 120, 3)))
+        model.add(Conv2D(30, (3, 3), strides=(1, 1), padding="valid", activation="relu"))
         model.add(tf.keras.layers.BatchNormalization())
-        model.add(
-            tf.keras.layers.MaxPool2D(pool_size=(2, 2), strides=None, padding="valid")
-        )
-        model.add(
-            tf.keras.layers.Conv2D(
-                20, (3, 3), strides=(1, 1), padding="valid", activation="relu"
-            )
-        )
-        model.add(
-            tf.keras.layers.Conv2D(
-                15, (3, 3), strides=(1, 1), padding="valid", activation="relu"
-            )
-        )
-        model.add(
-            tf.keras.layers.Conv2D(
-                15, (3, 3), strides=(1, 1), padding="valid", activation="relu"
-            )
-        )
-        # model.add(tf.keras.layers.GroupNormalization(groups=3))
-        model.add(
-            tf.keras.layers.MaxPool2D(pool_size=(2, 2), strides=None, padding="valid")
-        )
-        model.add(
-            tf.keras.layers.Conv2D(
-                10, (3, 3), strides=(1, 1), padding="valid", activation="relu"
-            )
-        )
+        model.add(MaxPooling2D(pool_size=(2, 2), strides=None, padding="valid"))
+        model.add(Conv2D(20, (3, 3), strides=(1, 1), padding="valid", activation="relu"))
+        model.add(Conv2D(15, (3, 3), strides=(1, 1), padding="valid", activation="relu"))
+        model.add(Conv2D(15, (3, 3), strides=(1, 1), padding="valid", activation="relu"))
+        model.add(MaxPooling2D(pool_size=(2, 2), strides=None, padding="valid"))
+        model.add(Conv2D(10, (3, 3), strides=(1, 1), padding="valid", activation="relu"))
+        
         model.add(tf.keras.layers.Flatten())
         model.add(tf.keras.layers.Normalization())
         model.add(tf.keras.layers.Dense(256, activation="relu"))
